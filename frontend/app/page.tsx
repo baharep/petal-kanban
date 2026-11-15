@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react';
 import Link from 'next/link';
 import type { CSSProperties } from 'react';
+import { LogoutButton } from './auth-actions';
 import { useProjects } from './projects-store';
 
 type Card = {
@@ -231,6 +232,7 @@ export function Board({ projectId = 'project-board', projectName = 'Project Boar
             <span>Projects</span>
             <span className="projects-count">{String(projectCount).padStart(2, '0')}</span>
           </Link>
+          <LogoutButton />
         </nav>
       </header>
 

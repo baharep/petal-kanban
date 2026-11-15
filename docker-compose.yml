@@ -2,6 +2,9 @@ services:
   backend:
     build:
       context: ./backend
+    environment:
+      PETAL_COOKIE_SECURE: ${PETAL_COOKIE_SECURE:-false}
+      PETAL_SESSION_SECRET: ${PETAL_SESSION_SECRET:?Run scripts/start.ps1 to create a local session key}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     healthcheck:
@@ -23,5 +26,6 @@ services:
         condition: service_healthy
     environment:
       NEXT_TELEMETRY_DISABLED: "1"
+      PETAL_API_INTERNAL_URL: http://backend:8000
     ports:
       - "${FRONTEND_PORT:-3000}:3000"

@@ -1,6 +1,10 @@
 import { expect, test } from '@playwright/test';
 
 test.beforeEach(async ({ page }) => {
+  const login = await page.request.post('http://127.0.0.1:8000/api/auth/login', {
+    data: { username: 'user', password: 'password' },
+  });
+  expect(login.ok()).toBe(true);
   await page.goto('/');
 });
 

@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { FormEvent, useState } from 'react';
+import { LogoutButton } from '../auth-actions';
 import { createProject, useProjects } from '../projects-store';
 
 function PetalMark({ className = '' }: { className?: string }) {
@@ -46,6 +47,9 @@ export default function ProjectsPage() {
         <Link className="projects-link" href="/">
           <span aria-hidden="true">←</span> Back to board
         </Link>
+        <nav className="topbar-actions" aria-label="Account actions">
+          <LogoutButton />
+        </nav>
       </header>
       <main className="projects-page">
         <div className="projects-title-row">
