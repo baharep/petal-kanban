@@ -33,6 +33,7 @@ export function Board({ projectId = 'project-board' }: {
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [assistantBusy, setAssistantBusy] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [saveErrorStatus, setSaveErrorStatus] = useState<number | null>(null);
   const saveQueue = useRef<Promise<boolean>>(Promise.resolve(true));
@@ -403,18 +404,46 @@ export function Board({ projectId = 'project-board' }: {
             </button>
           </div>
         ) : null}
-        <div className="board-workspace" inert={assistantBusy}>
-        <section className="intro" aria-labelledby="board-title">
+        <div className="board-workspace">
+        <section className={`intro${assistantOpen ? ' assistant-open' : ''}`} aria-labelledby="board-title">
           <div className="intro-copy">
             <p className="eyebrow"><span /> YOUR CREATIVE WORKSPACE</p>
             <h1 id="board-title">{board.projectName}</h1>
             <p className="intro-description">A clear view of your team&apos;s progress, all in one place.</p>
           </div>
-          <button className="new-card-button" type="button" onClick={() => setNewCardOpen(true)}>
-            <span aria-hidden="true">+</span> Bloom a card
-          </button>
+          <div id="petal-assistant-panel" className="assistant-popover" hidden={!assistantOpen}>
+            <BoardAssistant
+              projectId={projectId}
+              busy={assistantBusy}
+              onBusyChange={setAssistantBusy}
+              onClose={() => setAssistantOpen(false)}
+              beforeRequest={flushBoardSave}
+              onBoardUpdate={applyAssistantBoard}
+            />
+          </div>
+          <div className="intro-actions">
+            <button
+              className="new-card-button assistant-toggle-button"
+              type="button"
+              aria-expanded={assistantOpen}
+              aria-controls="petal-assistant-panel"
+              disabled={assistantBusy}
+              onClick={() => setAssistantOpen((open) => !open)}
+            >
+              {assistantOpen ? 'Close Petal assistant' : 'Ask Petal assistant'}
+            </button>
+            <button
+              className="new-card-button"
+              type="button"
+              onClick={() => setNewCardOpen(true)}
+              disabled={assistantBusy}
+            >
+              <span aria-hidden="true">+</span> Bloom a card
+            </button>
+          </div>
         </section>
 
+        <div className="board-content" inert={assistantBusy}>
         <div className="board-toolbar">
           <div className="board-heading">
             <h2 id="board-section-heading">Board</h2>
@@ -593,14 +622,8 @@ export function Board({ projectId = 'project-board' }: {
           ))}
         </div>
         </div>
+        </div>
 
-        <BoardAssistant
-          projectId={projectId}
-          busy={assistantBusy}
-          onBusyChange={setAssistantBusy}
-          beforeRequest={flushBoardSave}
-          onBoardUpdate={applyAssistantBoard}
-        />
         <footer className="page-footer">
           <span>PETAL PROJECTS</span>
           <span>Move work forward, one card at a time.</span>

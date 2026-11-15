@@ -18,6 +18,7 @@ type BoardAssistantProps = {
   projectId: string;
   busy: boolean;
   onBusyChange: (busy: boolean) => void;
+  onClose: () => void;
   beforeRequest: () => Promise<boolean>;
   onBoardUpdate: (board: ProjectBoard) => void;
 };
@@ -41,6 +42,7 @@ export function BoardAssistant({
   projectId,
   busy,
   onBusyChange,
+  onClose,
   beforeRequest,
   onBoardUpdate,
 }: BoardAssistantProps) {
@@ -99,8 +101,15 @@ export function BoardAssistant({
     setErrorStatus(null);
   };
 
+  const cancel = () => {
+    setDraft('');
+    setError('');
+    setErrorStatus(null);
+    onClose();
+  };
+
   return (
-    <section className="assistant-panel" aria-labelledby="assistant-heading">
+    <section className="assistant-panel assistant-panel-compact" aria-labelledby="assistant-heading">
       <header className="assistant-header">
         <div>
           <p className="eyebrow"><span /> BOARD ASSISTANT</p>
@@ -112,62 +121,75 @@ export function BoardAssistant({
         <button
           className="assistant-clear-button"
           type="button"
+          aria-label="Clear conversation"
           onClick={clearConversation}
           disabled={busy || messages.length === 0}
         >
-          Clear conversation
+          Clear
         </button>
       </header>
 
-      <ol className="assistant-messages" role="log" aria-label="Assistant conversation" aria-relevant="additions">
-        {messages.length === 0 ? (
-          <li className="assistant-empty">Your conversation will appear here.</li>
-        ) : messages.map((entry, index) => (
-          <li
-            className={`assistant-message assistant-message-${entry.role}`}
-            key={`${index}-${entry.role}`}
-          >
-            <span className="assistant-message-label">
-              {entry.role === 'user' ? 'You' : 'Petal assistant'}
-            </span>
-            <p>{entry.content}</p>
-          </li>
-        ))}
-      </ol>
+      <div className="assistant-chat-surface">
+        <ol className="assistant-messages" role="log" aria-label="Assistant conversation" aria-relevant="additions">
+          {messages.length === 0 ? (
+            <li className="assistant-empty">Your conversation will appear here.</li>
+          ) : messages.map((entry, index) => (
+            <li
+              className={`assistant-message assistant-message-${entry.role}`}
+              key={`${index}-${entry.role}`}
+            >
+              <span className="assistant-message-label">
+                {entry.role === 'user' ? 'You' : 'Petal assistant'}
+              </span>
+              <p>{entry.content}</p>
+            </li>
+          ))}
+        </ol>
 
-      <p className="assistant-status" role="status" aria-live="polite">
-        {busy ? 'Saving the board and waiting for the assistant...' : ''}
-      </p>
-      {error ? (
-        <p className="assistant-error" role="alert">
-          {error}
-          {errorStatus === 401 ? <> <Link href="/login">Sign in</Link></> : null}
+        <p className="assistant-status" role="status" aria-live="polite">
+          {busy ? 'Saving the board and waiting for the assistant...' : ''}
         </p>
-      ) : null}
+        {error ? (
+          <p className="assistant-error" role="alert">
+            {error}
+            {errorStatus === 401 ? <> <Link href="/login">Sign in</Link></> : null}
+          </p>
+        ) : null}
 
-      <form className="assistant-form" aria-label="Ask the Petal assistant" onSubmit={submitMessage}>
-        <label htmlFor="assistant-message">Your message</label>
-        <textarea
-          id="assistant-message"
-          className="input-field assistant-input"
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          placeholder="Ask a question or describe a board update..."
-          maxLength={2000}
-          rows={3}
-          disabled={busy}
-        />
-        <div className="assistant-form-actions">
-          <span className="assistant-limit">Up to 2,000 characters</span>
-          <button
-            className="new-card-submit assistant-submit"
-            type="submit"
-            disabled={busy || !draft.trim()}
-          >
-            {busy ? 'Sending...' : 'Send message'}
-          </button>
-        </div>
-      </form>
+        <form className="assistant-form" aria-label="Ask the Petal assistant" onSubmit={submitMessage}>
+          <label htmlFor="assistant-message">Your message</label>
+          <textarea
+            id="assistant-message"
+            className="input-field assistant-input"
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            placeholder="Ask a question or describe a board update..."
+            maxLength={2000}
+            rows={3}
+            disabled={busy}
+          />
+          <div className="assistant-form-actions">
+            <span className="assistant-limit">Up to 2,000 characters</span>
+            <div className="assistant-form-buttons">
+              <button
+                className="assistant-cancel-button"
+                type="button"
+                onClick={cancel}
+                disabled={busy}
+              >
+                Cancel
+              </button>
+              <button
+                className="new-card-submit assistant-submit"
+                type="submit"
+                disabled={busy || !draft.trim()}
+              >
+                {busy ? 'Sending...' : 'Send message'}
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
     </section>
   );
 }

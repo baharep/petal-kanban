@@ -240,6 +240,7 @@ describe('Board', () => {
 
   it('sends a message and applies the assistant board update', async () => {
     await renderBoard();
+    fireEvent.click(screen.getByRole('button', { name: 'Ask Petal assistant' }));
     const updatedBoard = JSON.parse(JSON.stringify(board)) as ProjectBoard;
     updatedBoard.columns[0].cards[0].title = 'Assistant update';
     assistantResponse = { reply: 'I updated the first card.', board: updatedBoard };
@@ -283,6 +284,7 @@ describe('Board', () => {
 
   it('shows an accessible error and keeps the message available to retry', async () => {
     await renderBoard();
+    fireEvent.click(screen.getByRole('button', { name: 'Ask Petal assistant' }));
     vi.mocked(fetch).mockImplementationOnce(async () => ({
       ok: false,
       status: 503,
@@ -302,6 +304,7 @@ describe('Board', () => {
 
   it('announces the waiting state and disables duplicate sends', async () => {
     await renderBoard();
+    fireEvent.click(screen.getByRole('button', { name: 'Ask Petal assistant' }));
     let resolveResponse: ((response: Response) => void) | undefined;
     const responsePending = new Promise<Response>((resolve) => {
       resolveResponse = resolve;
@@ -323,6 +326,38 @@ describe('Board', () => {
       json: async () => assistantResponse,
     } as Response);
     expect(await screen.findByText('Here is my response.')).toBeInTheDocument();
+  });
+
+  it('opens and closes the assistant from its launch button', async () => {
+    await renderBoard();
+    const openButton = screen.getByRole('button', { name: 'Ask Petal assistant' });
+
+    expect(openButton).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('region', { name: 'Petal assistant' })).not.toBeInTheDocument();
+
+    fireEvent.click(openButton);
+    const assistant = screen.getByRole('region', { name: 'Petal assistant' });
+    const closeButton = screen.getByRole('button', { name: 'Close Petal assistant' });
+    expect(closeButton).toHaveAttribute('aria-expanded', 'true');
+    expect(assistant).toBeVisible();
+
+    fireEvent.click(closeButton);
+    expect(screen.getByRole('button', { name: 'Ask Petal assistant' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('region', { name: 'Petal assistant' })).not.toBeInTheDocument();
+  });
+
+  it('cancels the assistant question box and clears its draft', async () => {
+    await renderBoard();
+    fireEvent.click(screen.getByRole('button', { name: 'Ask Petal assistant' }));
+
+    fireEvent.change(screen.getByLabelText('Your message'), {
+      target: { value: 'Draft question' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.queryByRole('region', { name: 'Petal assistant' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Ask Petal assistant' }));
+    expect(screen.getByLabelText('Your message')).toHaveValue('');
   });
 
   it('adds a named column to the board', async () => {

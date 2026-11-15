@@ -7,6 +7,9 @@ test.beforeEach(async ({ page }) => {
 
 test('shows the five stages and the sample project cards', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Project Board' })).toBeVisible();
+  const introButtons = page.locator('.intro').getByRole('button');
+  await expect(introButtons.nth(0)).toHaveAccessibleName('Ask Petal assistant');
+  await expect(introButtons.nth(1)).toHaveAccessibleName('Bloom a card');
   const board = page.getByRole('region', { name: 'Board', exact: true });
   await expect(board.locator('.column')).toHaveCount(5);
   await expect(page.getByText('Design homepage')).toBeVisible();
@@ -105,6 +108,7 @@ test('sends a conversation to a mocked assistant and applies its board update', 
     });
   });
 
+  await page.getByRole('button', { name: 'Ask Petal assistant' }).click();
   const assistant = page.getByRole('region', { name: 'Petal assistant' });
   await assistant.getByLabel('Your message').fill('Review the homepage task.');
   await assistant.getByRole('button', { name: 'Send message' }).click();
@@ -117,11 +121,38 @@ test('sends a conversation to a mocked assistant and applies its board update', 
   });
 });
 
+test('opens a unified larger assistant box to the left of the actions and can cancel it', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByRole('button', { name: 'Ask Petal assistant' }).click();
+
+  const assistant = page.getByRole('region', { name: 'Petal assistant' });
+  await expect(assistant).toBeVisible();
+  await expect(assistant.getByRole('button', { name: 'Cancel' })).toBeVisible();
+  const chatSurface = assistant.locator('.assistant-chat-surface');
+  await expect(chatSurface.locator('.assistant-messages')).toHaveCount(1);
+  await expect(chatSurface.locator('.assistant-form')).toHaveCount(1);
+
+  const panelBox = await assistant.boundingBox();
+  const cardBox = await page.locator('.card').first().boundingBox();
+  const actionsBox = await page.locator('.intro-actions').boundingBox();
+  expect(panelBox).not.toBeNull();
+  expect(cardBox).not.toBeNull();
+  expect(actionsBox).not.toBeNull();
+  expect(Math.abs((panelBox?.width ?? 0) - (cardBox?.width ?? 0) * 1.2)).toBeLessThan(3);
+  expect((panelBox?.x ?? 0) + (panelBox?.width ?? 0)).toBeLessThan(actionsBox?.x ?? 0);
+  expect(Math.abs((panelBox?.height ?? 0) - 391)).toBeLessThan(2);
+
+  await assistant.getByRole('button', { name: 'Cancel' }).click();
+  await expect(assistant).toBeHidden();
+});
+
 test('keeps the assistant usable without horizontal page overflow on mobile', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 844 });
 
+  await page.getByRole('button', { name: 'Ask Petal assistant' }).click();
   const assistant = page.getByRole('region', { name: 'Petal assistant' });
   await expect(assistant.getByLabel('Your message')).toBeVisible();
+  await expect(assistant.getByRole('button', { name: 'Cancel' })).toBeVisible();
   await expect(assistant.getByRole('button', { name: 'Send message' })).toBeDisabled();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(320);
 });
