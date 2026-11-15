@@ -3,8 +3,11 @@ services:
     build:
       context: ./backend
     environment:
+      PETAL_DATABASE_PATH: ${PETAL_DATABASE_PATH:-/data/petal.db}
       PETAL_COOKIE_SECURE: ${PETAL_COOKIE_SECURE:-false}
       PETAL_SESSION_SECRET: ${PETAL_SESSION_SECRET:?Run scripts/start.ps1 to create a local session key}
+    volumes:
+      - petal-data:/data
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     healthcheck:
@@ -29,3 +32,6 @@ services:
       PETAL_API_INTERNAL_URL: http://backend:8000
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
+
+volumes:
+  petal-data:

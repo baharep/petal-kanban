@@ -1,64 +1,16 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import type { CSSProperties } from 'react';
+import { ApiError, getApiErrorMessage, requestApiJson } from './api-client';
 import { LogoutButton } from './auth-actions';
-import { useProjects } from './projects-store';
-
-type Card = {
-  id: string;
-  title: string;
-  details: string;
-};
-
-type Column = {
-  id: string;
-  title: string;
-  cards: Card[];
-};
+import type { Card, Column, ProjectBoard } from './projects-store';
+import { refreshProjects, useProjects } from './projects-store';
 
 type Draft = Pick<Card, 'title' | 'details'>;
 
-const initialColumns: Column[] = [
-  {
-    id: 'todo',
-    title: 'To do',
-    cards: [
-      { id: 'todo-1', title: 'Design homepage', details: 'Update the hero section and CTA layout.' },
-      { id: 'todo-2', title: 'Review copy', details: 'Align the product text with the new campaign.' },
-    ],
-  },
-  {
-    id: 'in-progress',
-    title: 'In progress',
-    cards: [
-      { id: 'progress-1', title: 'Build dashboard', details: 'Finalize the summary cards and chart layout.' },
-    ],
-  },
-  {
-    id: 'review',
-    title: 'Review',
-    cards: [
-      { id: 'review-1', title: 'QA checklist', details: 'Check spacing, accessibility, and browser flow.' },
-    ],
-  },
-  {
-    id: 'done',
-    title: 'Done',
-    cards: [
-      { id: 'done-1', title: 'Brand colors', details: 'Finalize the palette and accent usage.' },
-    ],
-  },
-  {
-    id: 'blocked',
-    title: 'Blocked',
-    cards: [{ id: 'blocked-1', title: 'API access', details: 'Wait for final production credentials.' }],
-  },
-];
-
 const emptyDraft: Draft = { title: '', details: '' };
-const newCardColumnId = 'todo';
 
 function getColumnColors(index: number): CSSProperties {
   const backgroundLightness = Math.max(96 - index * 2.5, 76);
@@ -70,19 +22,20 @@ function getColumnColors(index: number): CSSProperties {
   } as CSSProperties;
 }
 
-export function Board({ projectId = 'project-board', projectName = 'Project Board' }: {
+export function Board({ projectId = 'project-board' }: {
   projectId?: string;
-  projectName?: string;
 }) {
-  const [columns, setColumns] = useState<Column[]>(() =>
-    initialColumns.map((column) => ({
-      ...column,
-      cards: projectId === 'project-board' ? [...column.cards] : [],
-    })),
-  );
-  const [drafts, setDrafts] = useState<Record<string, Draft>>(() =>
-    Object.fromEntries(initialColumns.map(({ id }) => [id, { ...emptyDraft }])),
-  );
+  const [board, setBoard] = useState<ProjectBoard | null>(null);
+  const currentBoardRef = useRef<ProjectBoard | null>(null);
+  const [loadStatus, setLoadStatus] = useState<'loading' | 'ready' | 'error' | 'unauthenticated'>('loading');
+  const [loadError, setLoadError] = useState('');
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [saveError, setSaveError] = useState('');
+  const [saveErrorStatus, setSaveErrorStatus] = useState<number | null>(null);
+  const saveQueue = useRef<Promise<void>>(Promise.resolve());
+  const saveVersion = useRef(0);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [draggedCardId, setDraggedCardId] = useState<string | null>(null);
   const [dragOverColumnId, setDragOverColumnId] = useState<string | null>(null);
   const draggedCard = useRef<{ cardId: string; sourceColumnId: string } | null>(null);
@@ -91,21 +44,116 @@ export function Board({ projectId = 'project-board', projectName = 'Project Boar
   const [activeFormColumn, setActiveFormColumn] = useState<string | null>(null);
   const [newCardOpen, setNewCardOpen] = useState(false);
   const [newCardDraft, setNewCardDraft] = useState<Draft>(emptyDraft);
-  const [newCardColumn, setNewCardColumn] = useState(newCardColumnId);
+  const [newCardColumn, setNewCardColumn] = useState('');
   const [newColumnOpen, setNewColumnOpen] = useState(false);
   const [newColumnTitle, setNewColumnTitle] = useState('');
-  const projectCount = useProjects().length;
+  const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const projectsState = useProjects();
+  const projectCount = projectsState.projects.length;
+
+  useEffect(() => {
+    const controller = new AbortController();
+    saveVersion.current += 1;
+    currentBoardRef.current = null;
+
+    void requestApiJson<ProjectBoard>(
+      `/api/projects/${encodeURIComponent(projectId)}/board`,
+      { signal: controller.signal },
+    ).then((loadedBoard) => {
+      if (controller.signal.aborted) return;
+      currentBoardRef.current = loadedBoard;
+      setBoard(loadedBoard);
+      setDrafts(Object.fromEntries(loadedBoard.columns.map(({ id }) => [id, { ...emptyDraft }])));
+      setNewCardColumn(loadedBoard.columns[0]?.id ?? '');
+      setLoadStatus('ready');
+    }).catch((error: unknown) => {
+      if (controller.signal.aborted) return;
+      setLoadStatus(error instanceof ApiError && error.status === 401 ? 'unauthenticated' : 'error');
+      setLoadError(
+        error instanceof ApiError && error.status === 404
+          ? 'Project not found. Return to your project list and try again.'
+          : getApiErrorMessage(error, 'Could not load this board. Check your connection and try again.'),
+      );
+    });
+
+    return () => controller.abort();
+  }, [projectId, loadAttempt]);
+
+  const persistBoard = useCallback((nextBoard: ProjectBoard) => {
+    const version = ++saveVersion.current;
+    setSaveStatus('saving');
+    setSaveError('');
+    setSaveErrorStatus(null);
+    saveQueue.current = saveQueue.current.catch(() => undefined).then(async () => {
+      await requestApiJson<ProjectBoard>(
+        `/api/projects/${encodeURIComponent(projectId)}/board`,
+        { method: 'PUT', body: JSON.stringify(nextBoard) },
+      );
+      if (version === saveVersion.current) setSaveStatus('saved');
+    }).catch((error: unknown) => {
+      if (version === saveVersion.current) {
+        setSaveStatus('error');
+        setSaveError(getApiErrorMessage(error, 'Could not save changes. Keep this page open and try again.'));
+        setSaveErrorStatus(error instanceof ApiError ? error.status : null);
+      }
+    });
+  }, [projectId]);
+
+  useEffect(() => () => {
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+      if (currentBoardRef.current) persistBoard(currentBoardRef.current);
+    }
+  }, [persistBoard]);
+
+  const scheduleBoardSave = (nextBoard: ProjectBoard) => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      saveTimer.current = null;
+      persistBoard(nextBoard);
+    }, 350);
+  };
+
+  const flushBoardSave = () => {
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+      if (currentBoardRef.current) persistBoard(currentBoardRef.current);
+    }
+  };
+
+  const updateColumns = (
+    update: (current: Column[]) => Column[],
+    delayed = false,
+  ) => {
+    const currentBoard = currentBoardRef.current;
+    if (!currentBoard) return;
+    const columns = update(currentBoard.columns);
+    if (columns === currentBoard.columns) return;
+    const nextBoard = { ...currentBoard, columns };
+    currentBoardRef.current = nextBoard;
+    setBoard(nextBoard);
+    if (delayed) scheduleBoardSave(nextBoard);
+    else {
+      if (saveTimer.current) {
+        clearTimeout(saveTimer.current);
+        saveTimer.current = null;
+      }
+      persistBoard(nextBoard);
+    }
+  };
 
   const updateDraft = (columnId: string, field: keyof Draft, value: string) => {
     setDrafts((current) => ({
       ...current,
-      [columnId]: { ...current[columnId], [field]: value },
+      [columnId]: { ...(current[columnId] ?? emptyDraft), [field]: value },
     }));
   };
 
   const addCard = (columnId: string, draft: Draft) => {
     const title = draft.title.trim();
-    if (!title) return false;
+    if (!title || !currentBoardRef.current?.columns.some((column) => column.id === columnId)) return false;
 
     const card: Card = {
       id: crypto.randomUUID(),
@@ -113,7 +161,7 @@ export function Board({ projectId = 'project-board', projectName = 'Project Boar
       details: draft.details.trim(),
     };
 
-    setColumns((current) =>
+    updateColumns((current) =>
       current.map((column) =>
         column.id === columnId ? { ...column, cards: [...column.cards, card] } : column,
       ),
@@ -122,7 +170,7 @@ export function Board({ projectId = 'project-board', projectName = 'Project Boar
   };
 
   const deleteCard = (columnId: string, cardId: string) => {
-    setColumns((current) =>
+    updateColumns((current) =>
       current.map((column) =>
         column.id === columnId
           ? { ...column, cards: column.cards.filter((card) => card.id !== cardId) }
@@ -132,8 +180,9 @@ export function Board({ projectId = 'project-board', projectName = 'Project Boar
   };
 
   const renameColumn = (columnId: string, title: string) => {
-    setColumns((current) =>
+    updateColumns((current) =>
       current.map((column) => (column.id === columnId ? { ...column, title } : column)),
+      true,
     );
   };
 
@@ -142,7 +191,7 @@ export function Board({ projectId = 'project-board', projectName = 'Project Boar
     const title = newColumnTitle.trim();
     if (!title) return;
 
-    setColumns((current) => [...current, { id: crypto.randomUUID(), title, cards: [] }]);
+    updateColumns((current) => [...current, { id: crypto.randomUUID(), title, cards: [] }]);
     setNewColumnTitle('');
     setNewColumnOpen(false);
     requestAnimationFrame(() => {
@@ -150,16 +199,40 @@ export function Board({ projectId = 'project-board', projectName = 'Project Boar
     });
   };
 
-  const moveCard = (sourceColumnId: string, cardId: string, targetColumnId: string) => {
-    if (sourceColumnId === targetColumnId) {
-      return;
-    }
-
-    setColumns((current) => {
+  const moveCard = (
+    sourceColumnId: string,
+    cardId: string,
+    targetColumnId: string,
+    targetCardId?: string,
+    position: 'before' | 'after' = 'after',
+  ) => {
+    updateColumns((current) => {
       const source = current.find((column) => column.id === sourceColumnId);
       const target = current.find((column) => column.id === targetColumnId);
       const card = source?.cards.find((item) => item.id === cardId);
       if (!source || !target || !card) return current;
+
+      if (source.id === target.id) {
+        if (targetCardId === cardId) return current;
+
+        const sourceIndex = source.cards.findIndex((item) => item.id === cardId);
+        const targetIndex = targetCardId
+          ? source.cards.findIndex((item) => item.id === targetCardId)
+          : source.cards.length;
+        if (sourceIndex < 0 || targetIndex < 0) return current;
+
+        let insertionIndex = targetIndex + (position === 'after' && targetCardId ? 1 : 0);
+        if (sourceIndex < insertionIndex) insertionIndex -= 1;
+
+        const cards = [...source.cards];
+        cards.splice(sourceIndex, 1);
+        cards.splice(insertionIndex, 0, card);
+        if (cards.every((item, index) => item.id === source.cards[index].id)) return current;
+
+        return current.map((column) =>
+          column.id === source.id ? { ...column, cards } : column,
+        );
+      }
 
       return current.map((column) => {
         if (column.id === source.id) {
@@ -173,18 +246,34 @@ export function Board({ projectId = 'project-board', projectName = 'Project Boar
     });
   };
 
-  const handleDrop = (event: React.DragEvent<HTMLElement>, targetColumnId: string) => {
+  const handleDrop = (
+    event: React.DragEvent<HTMLElement>,
+    targetColumnId: string,
+    targetCardId?: string,
+  ) => {
     event.preventDefault();
     const payload = event.dataTransfer.getData('text/plain');
     const [sourceColumnId, cardId] = (payload || '').split(':');
     const moving = sourceColumnId && cardId ? { sourceColumnId, cardId } : draggedCard.current;
 
-    if (moving) moveCard(moving.sourceColumnId, moving.cardId, targetColumnId);
+    if (moving) {
+      const targetCard = targetCardId
+        ? event.currentTarget
+        : event.target instanceof Element
+          ? event.target.closest<HTMLElement>('[data-card-id]')
+          : null;
+      const dropTargetCardId = targetCardId ?? targetCard?.dataset.cardId;
+      const bounds = targetCard?.getBoundingClientRect();
+      const midpoint = bounds ? Math.round(bounds.top + bounds.height / 2) : null;
+      const position = midpoint !== null && event.clientY >= midpoint ? 'after' : 'before';
+      moveCard(moving.sourceColumnId, moving.cardId, targetColumnId, dropTargetCardId, position);
+    }
     draggedCard.current = null;
     setDraggedCardId(null);
     setDragOverColumnId(null);
   };
 
+  const columns = board?.columns ?? [];
   const filteredColumns = columns.map((column) => ({
     ...column,
     cards: column.cards.filter((card) =>
@@ -202,6 +291,46 @@ export function Board({ projectId = 'project-board', projectName = 'Project Boar
     setNewCardDraft(emptyDraft);
     setNewCardOpen(false);
   };
+
+  const retryBoardLoad = () => {
+    setLoadError('');
+    setLoadStatus('loading');
+    setLoadAttempt((attempt) => attempt + 1);
+  };
+
+  if (loadStatus !== 'ready' || !board) {
+    const message = loadStatus === 'loading'
+      ? 'Loading board...'
+      : loadError;
+
+    return (
+      <div className="page-shell">
+        <header className="topbar">
+          <Link className="brand-mark" href="/" aria-label="Petal home">
+            <span className="brand-badge" aria-hidden="true">
+              <span className="petal petal-one" />
+              <span className="petal petal-two" />
+              <span className="petal petal-three" />
+              <span className="petal-center" />
+            </span>
+            <span className="brand-name">Petal<span className="brand-period">.</span></span>
+          </Link>
+        </header>
+        <main className="projects-page">
+          <p role={loadStatus === 'error' || loadStatus === 'unauthenticated' ? 'alert' : 'status'}>
+            {message}
+          </p>
+          {loadStatus === 'error' ? (
+            <button className="projects-link" type="button" onClick={retryBoardLoad}>
+              Try again
+            </button>
+          ) : null}
+          {loadStatus === 'unauthenticated' ? <Link className="projects-link" href="/login">Sign in</Link> : null}
+          <Link className="projects-link" href="/projects">All projects</Link>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="page-shell">
@@ -237,10 +366,18 @@ export function Board({ projectId = 'project-board', projectName = 'Project Boar
       </header>
 
       <main className="main-content">
+        {projectsState.migrationError ? (
+          <div className="data-message" role="alert">
+            <p>{projectsState.migrationError}</p>
+            <button type="button" className="inline-action" onClick={() => void refreshProjects()}>
+              Retry import
+            </button>
+          </div>
+        ) : null}
         <section className="intro" aria-labelledby="board-title">
           <div className="intro-copy">
             <p className="eyebrow"><span /> YOUR CREATIVE WORKSPACE</p>
-            <h1 id="board-title">{projectName}</h1>
+            <h1 id="board-title">{board.projectName}</h1>
             <p className="intro-description">A clear view of your team&apos;s progress, all in one place.</p>
           </div>
           <button className="new-card-button" type="button" onClick={() => setNewCardOpen(true)}>
@@ -252,6 +389,17 @@ export function Board({ projectId = 'project-board', projectName = 'Project Boar
           <div className="board-heading">
             <h2 id="board-section-heading">Board</h2>
             <p>Drag a card to move it between stages</p>
+            {saveStatus === 'saving' ? <p className="board-save-status" role="status">Saving changes...</p> : null}
+            {saveStatus === 'saved' ? <p className="board-save-status" role="status">All changes saved.</p> : null}
+            {saveStatus === 'error' ? (
+              <p className="board-save-status" role="alert">
+                {saveError}{' '}
+                {saveErrorStatus === 401 ? <Link href="/login">Sign in</Link> : null}{' '}
+                <button className="inline-action" type="button" onClick={() => {
+                  if (currentBoardRef.current) persistBoard(currentBoardRef.current);
+                }}>Retry</button>
+              </p>
+            ) : null}
           </div>
           <div className="board-actions">
             <button className="add-column-button" type="button" onClick={() => setNewColumnOpen(true)}>
@@ -297,13 +445,14 @@ export function Board({ projectId = 'project-board', projectName = 'Project Boar
                   value={column.title}
                   onChange={(event) => renameColumn(column.id, event.target.value)}
                   onBlur={(event) => {
-                    if (!event.currentTarget.value.trim()) {
-                      renameColumn(column.id, initialColumns[index]?.title ?? 'New column');
-                    }
+                    const title = event.currentTarget.value.trim() || `Stage ${index + 1}`;
+                    if (title !== column.title) renameColumn(column.id, title);
+                    flushBoardSave();
                   }}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter') event.currentTarget.blur();
                   }}
+                  maxLength={120}
                 />
                 <span className="column-count" aria-label={`${column.cards.length} cards`}>
                   {String(column.cards.length).padStart(2, '0')}
@@ -330,6 +479,14 @@ export function Board({ projectId = 'project-board', projectName = 'Project Boar
                       event.dataTransfer.setData('text/plain', payload);
                       event.dataTransfer.effectAllowed = 'move';
                       setDraggedCardId(card.id);
+                    }}
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = 'move';
+                    }}
+                    onDrop={(event) => {
+                      event.stopPropagation();
+                      handleDrop(event, column.id, card.id);
                     }}
                     onDragEnd={() => {
                       draggedCard.current = null;
@@ -373,6 +530,7 @@ export function Board({ projectId = 'project-board', projectName = 'Project Boar
                   value={drafts[column.id]?.title ?? ''}
                   onChange={(event) => updateDraft(column.id, 'title', event.target.value)}
                   placeholder="Give your task a name"
+                  maxLength={200}
                   required
                 />
                 <label className="sr-only" htmlFor={`card-details-${column.id}`}>Card details</label>
@@ -383,6 +541,7 @@ export function Board({ projectId = 'project-board', projectName = 'Project Boar
                   onChange={(event) => updateDraft(column.id, 'details', event.target.value)}
                   placeholder="Add a few details..."
                   rows={2}
+                  maxLength={5000}
                 />
                 <div className="card-form-actions">
                   <button className="primary-button" type="submit" disabled={!drafts[column.id]?.title.trim()}>
@@ -440,6 +599,7 @@ export function Board({ projectId = 'project-board', projectName = 'Project Boar
               value={newCardDraft.title}
               onChange={(event) => setNewCardDraft((draft) => ({ ...draft, title: event.target.value }))}
               placeholder="What are we working on?"
+              maxLength={200}
             />
             <label htmlFor="new-card-details">Details <span>(optional)</span></label>
             <textarea
@@ -449,6 +609,7 @@ export function Board({ projectId = 'project-board', projectName = 'Project Boar
               value={newCardDraft.details}
               onChange={(event) => setNewCardDraft((draft) => ({ ...draft, details: event.target.value }))}
               placeholder="A little context goes a long way..."
+              maxLength={5000}
             />
             <label htmlFor="new-card-column">Add to</label>
             <select id="new-card-column" className="input-field" value={newCardColumn} onChange={(event) => setNewCardColumn(event.target.value)}>
@@ -488,6 +649,7 @@ export function Board({ projectId = 'project-board', projectName = 'Project Boar
               value={newColumnTitle}
               onChange={(event) => setNewColumnTitle(event.target.value)}
               placeholder="Name this stage"
+              maxLength={120}
             />
             <button className="new-card-submit" type="submit" disabled={!newColumnTitle.trim()}>
               Add column <span aria-hidden="true">→</span>

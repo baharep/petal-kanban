@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { apiOrigin } from './e2e-helpers';
 
 test('redirects unauthenticated visitors to sign in', async ({ page }) => {
   await page.goto('/');
@@ -26,7 +27,7 @@ test('rejects invalid credentials and accepts the demo account', async ({ page }
 });
 
 test('logs out and protects project routes', async ({ page }) => {
-  await page.request.post('http://127.0.0.1:8000/api/auth/login', {
+  await page.request.post(`${apiOrigin}/api/auth/login`, {
     data: { username: 'user', password: 'password' },
   });
   await page.goto('/projects');

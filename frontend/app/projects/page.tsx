@@ -3,8 +3,9 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { FormEvent, useState } from 'react';
+import { ApiError, getApiErrorMessage } from '../api-client';
 import { LogoutButton } from '../auth-actions';
-import { createProject, useProjects } from '../projects-store';
+import { createProject, refreshProjects, useProjects } from '../projects-store';
 
 function PetalMark({ className = '' }: { className?: string }) {
   return (
@@ -19,17 +20,30 @@ function PetalMark({ className = '' }: { className?: string }) {
 
 export default function ProjectsPage() {
   const router = useRouter();
-  const projects = useProjects();
+  const projectsState = useProjects();
+  const { projects } = projectsState;
   const [isCreating, setIsCreating] = useState(false);
   const [projectName, setProjectName] = useState('');
+  const [createError, setCreateError] = useState('');
+  const [createErrorStatus, setCreateErrorStatus] = useState<number | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const submitProject = (event: FormEvent<HTMLFormElement>) => {
+  const submitProject = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const name = projectName.trim();
     if (!name) return;
 
-    const project = createProject(name);
-    router.push(`/projects/${project.id}`);
+    setCreateError('');
+    setIsSubmitting(true);
+    try {
+      const project = await createProject(name);
+      router.push(`/projects/${project.id}`);
+    } catch (error) {
+      setCreateError(getApiErrorMessage(error, 'Could not create the project. Please try again.'));
+      setCreateErrorStatus(error instanceof ApiError ? error.status : null);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -58,29 +72,59 @@ export default function ProjectsPage() {
             <h1>Your projects<span className="brand-period">.</span></h1>
             <p className="intro-description">One little garden for everything you&apos;re growing.</p>
           </div>
-          <button className="new-card-button" type="button" onClick={() => setIsCreating(true)}>
+          <button
+            className="new-card-button"
+            type="button"
+            onClick={() => setIsCreating(true)}
+            disabled={projectsState.status !== 'ready'}
+          >
             <span aria-hidden="true">+</span> New project
           </button>
         </div>
-        <div className="project-list">
-          {projects.map((project) => (
-            <Link
-              className="project-tile"
-              href={project.id === 'project-board' ? '/' : `/projects/${project.id}`}
-              key={project.id}
-            >
-              <PetalMark />
-              <span className="project-tile-copy">
-                <strong>{project.name}</strong>
-                <span>Five stages · Your team&apos;s work</span>
-              </span>
-              <span className="project-tile-arrow" aria-hidden="true">→</span>
-            </Link>
-          ))}
-        </div>
-        <p className="project-count-note">
-          {String(projects.length).padStart(2, '0')} {projects.length === 1 ? 'project' : 'projects'} in your workspace
-        </p>
+        {projectsState.migrationError ? (
+          <div className="data-message" role="alert">
+            <p>{projectsState.migrationError}</p>
+            <button type="button" className="inline-action" onClick={() => void refreshProjects()}>
+              Retry import
+            </button>
+          </div>
+        ) : null}
+        {projectsState.status === 'loading' ? (
+          <p role="status">Loading projects...</p>
+        ) : projectsState.status === 'error' || projectsState.status === 'unauthenticated' ? (
+          <div className="data-message" role="alert">
+            <p>{projectsState.error}</p>
+            {projectsState.status === 'unauthenticated' ? (
+              <Link className="inline-action" href="/login">Sign in</Link>
+            ) : (
+              <button type="button" className="inline-action" onClick={() => void refreshProjects()}>
+                Try again
+              </button>
+            )}
+          </div>
+        ) : (
+          <>
+            <div className="project-list">
+              {projects.map((project) => (
+                <Link
+                  className="project-tile"
+                  href={project.id === 'project-board' ? '/' : `/projects/${project.id}`}
+                  key={project.id}
+                >
+                  <PetalMark />
+                  <span className="project-tile-copy">
+                    <strong>{project.name}</strong>
+                    <span>Five stages · Your team&apos;s work</span>
+                  </span>
+                  <span className="project-tile-arrow" aria-hidden="true">→</span>
+                </Link>
+              ))}
+            </div>
+            <p className="project-count-note">
+              {String(projects.length).padStart(2, '0')} {projects.length === 1 ? 'project' : 'projects'} in your workspace
+            </p>
+          </>
+        )}
       </main>
 
       {isCreating ? (
@@ -112,8 +156,16 @@ export default function ProjectsPage() {
               value={projectName}
               onChange={(event) => setProjectName(event.target.value)}
               placeholder="What are we growing?"
+              maxLength={120}
             />
-            <button className="new-card-submit" type="submit">Create project <span aria-hidden="true">→</span></button>
+            {createError ? (
+              <p className="auth-error" role="alert">
+                {createError}{createErrorStatus === 401 ? <> <Link href="/login">Sign in</Link></> : null}
+              </p>
+            ) : null}
+            <button className="new-card-submit" type="submit" disabled={isSubmitting}>
+              {isSubmitting ? 'Creating...' : 'Create project'} <span aria-hidden="true">→</span>
+            </button>
           </form>
         </div>
       ) : null}

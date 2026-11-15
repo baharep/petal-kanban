@@ -1,11 +1,8 @@
 import { expect, test } from '@playwright/test';
+import { signInAndResetBoard } from './e2e-helpers';
 
 test.beforeEach(async ({ page }) => {
-  const login = await page.request.post('http://127.0.0.1:8000/api/auth/login', {
-    data: { username: 'user', password: 'password' },
-  });
-  expect(login.ok()).toBe(true);
-  await page.goto('/');
+  await signInAndResetBoard(page);
 });
 
 test('shows the five stages and the sample project cards', async ({ page }) => {
@@ -30,8 +27,10 @@ test('adds and deletes a card', async ({ page }) => {
   const review = page.getByRole('region', { name: 'Review' });
   await expect(review.getByText('Browser test card')).toBeVisible();
   await expect(review.getByText('Created by Playwright')).toBeVisible();
+  await expect(page.getByText('All changes saved.')).toBeVisible();
   await review.getByRole('button', { name: 'Delete Browser test card' }).click();
   await expect(review.getByText('Browser test card')).toHaveCount(0);
+  await expect(page.getByText('All changes saved.')).toBeVisible();
 });
 
 test('renames a column and preserves its cards', async ({ page }) => {
@@ -40,6 +39,8 @@ test('renames a column and preserves its cards', async ({ page }) => {
   const ideas = page.getByRole('region', { name: 'Ideas' });
   await expect(ideas).toBeVisible();
   await expect(ideas.getByText('Design homepage')).toBeVisible();
+  await page.getByRole('textbox', { name: 'Rename column 1' }).press('Enter');
+  await expect(page.getByText('All changes saved.')).toBeVisible();
 });
 
 test('moves a card by dragging it into another stage', async ({ page }) => {
@@ -52,6 +53,16 @@ test('moves a card by dragging it into another stage', async ({ page }) => {
   await expect(source.getByText('Design homepage')).toHaveCount(0);
   await expect(target.getByText('Design homepage')).toBeVisible();
   await expect(page.getByRole('region', { name: 'Blocked' })).not.toContainText('Drop a card here');
+  await expect(page.getByText('All changes saved.')).toBeVisible();
+});
+
+test('reorders cards within the same stage by dragging', async ({ page }) => {
+  const cards = page.getByRole('list', { name: 'To do cards' });
+  await cards.locator('[data-card-id="todo-1"]').dragTo(cards.locator('[data-card-id="todo-2"]'));
+
+  await expect(cards.locator('[data-card-id]').first()).toHaveAttribute('data-card-id', 'todo-2');
+  await expect(cards.locator('[data-card-id]').nth(1)).toHaveAttribute('data-card-id', 'todo-1');
+  await expect(page.getByText('All changes saved.')).toBeVisible();
 });
 
 test('creates a card from the main action and selects its stage', async ({ page }) => {
@@ -64,6 +75,7 @@ test('creates a card from the main action and selects its stage', async ({ page 
 
   await expect(page.getByRole('list', { name: 'Done cards' }).getByText('A new bloom')).toBeVisible();
   await expect(form).toHaveCount(0);
+  await expect(page.getByText('All changes saved.')).toBeVisible();
 });
 
 test('searches cards by title and details', async ({ page }) => {
@@ -74,7 +86,7 @@ test('searches cards by title and details', async ({ page }) => {
 });
 
 test('opens the project window and returns to the board', async ({ page }) => {
-  await page.getByRole('link', { name: 'View 1 project' }).click();
+  await page.getByRole('link', { name: /View \d+ projects?/ }).click();
 
   await expect(page).toHaveURL(/\/projects$/);
   await expect(page.getByRole('heading', { name: 'Your projects.' })).toBeVisible();
@@ -83,7 +95,7 @@ test('opens the project window and returns to the board', async ({ page }) => {
 });
 
 test('creates a project and opens its board', async ({ page }) => {
-  await page.getByRole('link', { name: 'View 1 project' }).click();
+  await page.getByRole('link', { name: /View \d+ projects?/ }).click();
   await page.getByRole('button', { name: 'New project' }).click();
 
   const dialog = page.getByRole('dialog', { name: 'Grow a project' });
@@ -94,22 +106,6 @@ test('creates a project and opens its board', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Spring launch' })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Board', exact: true }).locator('.column')).toHaveCount(5);
   await expect(page.getByRole('list', { name: 'To do cards' })).toContainText('Drop a card here');
-});
-
-test('adds another column and scrolls the board to it', async ({ page }) => {
-  await page.getByRole('button', { name: 'Add a column' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Add a column' });
-  await dialog.getByLabel('Column name').fill('Launch');
-  await dialog.getByRole('button', { name: 'Add column', exact: true }).click();
-
-  const board = page.getByRole('region', { name: 'Board', exact: true });
-  await expect(board.locator('.column')).toHaveCount(6);
-  await expect(page.getByRole('region', { name: 'Launch' })).toBeVisible();
-  await expect.poll(() => board.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
-
-  const previousScroll = await board.evaluate((element) => element.scrollLeft);
-  await page.getByRole('button', { name: 'Scroll columns left' }).click();
-  await expect.poll(() => board.evaluate((element) => element.scrollLeft)).toBeLessThan(previousScroll);
 });
 
 test('keeps all five columns usable in a narrow viewport', async ({ page }) => {
@@ -123,4 +119,53 @@ test('keeps all five columns usable in a narrow viewport', async ({ page }) => {
   await expect(page.getByRole('region', { name: 'Blocked' })).toBeAttached();
   await page.getByRole('button', { name: 'Scroll columns right' }).click();
   await expect.poll(() => board.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
+});
+
+test('persists board changes after a page reload', async ({ page }) => {
+  await page.getByRole('button', { name: 'Add a card to To do' }).click();
+  const form = page.getByRole('form', { name: 'Add card to To do' });
+  await form.getByLabel('Card title').fill('Persistent task');
+  await form.getByRole('button', { name: 'Add card' }).click();
+  await expect(page.getByText('All changes saved.')).toBeVisible();
+
+  await page.reload();
+
+  await expect(page.getByRole('list', { name: 'To do cards' }).getByText('Persistent task')).toBeVisible();
+});
+
+test('imports legacy project names once and keeps the browser copy', async ({ page }) => {
+  const legacyProjects = [{ id: 'legacy-project-e2e', name: 'Legacy garden' }];
+  await page.evaluate((projects) => {
+    localStorage.setItem('petal-projects', JSON.stringify(projects));
+    localStorage.removeItem('petal-projects-migration-v1');
+  }, legacyProjects);
+  await page.reload();
+
+  await page.getByRole('link', { name: /View \d+ projects?/ }).click();
+  const legacyProjectLink = page.getByRole('link', { name: /Legacy garden/ });
+  await expect(legacyProjectLink).toBeVisible();
+  await legacyProjectLink.click();
+  await expect(page.getByRole('heading', { name: 'Legacy garden' })).toBeVisible();
+
+  const storedProjects = await page.evaluate(() => localStorage.getItem('petal-projects'));
+  expect(JSON.parse(storedProjects ?? 'null')).toEqual(legacyProjects);
+  await expect.poll(async () => page.evaluate(() => localStorage.getItem('petal-projects-migration-v1')))
+    .toBe('complete');
+});
+
+test('adds another column and scrolls the board to it', async ({ page }) => {
+  await page.getByRole('button', { name: 'Add a column' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Add a column' });
+  await dialog.getByLabel('Column name').fill('Launch');
+  await dialog.getByRole('button', { name: 'Add column', exact: true }).click();
+
+  const board = page.getByRole('region', { name: 'Board', exact: true });
+  await expect(board.locator('.column')).toHaveCount(6);
+  await expect(page.getByRole('region', { name: 'Launch' })).toBeVisible();
+  await expect(page.getByText('All changes saved.')).toBeVisible();
+  await expect.poll(() => board.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
+
+  const previousScroll = await board.evaluate((element) => element.scrollLeft);
+  await page.getByRole('button', { name: 'Scroll columns left' }).click();
+  await expect.poll(() => board.evaluate((element) => element.scrollLeft)).toBeLessThan(previousScroll);
 });

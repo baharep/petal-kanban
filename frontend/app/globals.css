@@ -194,6 +194,36 @@ a:focus-visible {
   font-size: 12px;
 }
 
+.data-message {
+  margin: 16px 0;
+  padding: 12px 14px;
+  border: 1px solid #f0c1d1;
+  border-radius: 9px;
+  color: #8c264a;
+  background: #fff7fa;
+  font-size: 13px;
+}
+
+.data-message p {
+  margin: 0 0 8px;
+}
+
+.inline-action {
+  padding: 0;
+  border: 0;
+  color: #8c264a;
+  background: transparent;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.inline-action:focus-visible {
+  outline: 2px solid #a52e56;
+  outline-offset: 3px;
+}
+
 .auth-demo-note {
   margin: 22px 0 0;
   padding-top: 16px;
@@ -489,6 +519,11 @@ a:focus-visible {
   margin: 0;
   color: var(--gray-text);
   font-size: 11px;
+}
+
+.board-heading .board-save-status {
+  margin-top: 5px;
+  color: #783650;
 }
 
 .carousel-controls {

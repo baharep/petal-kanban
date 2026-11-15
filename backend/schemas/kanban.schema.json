@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Petal Kanban Board",
+  "description": "Board data returned for one project. The authenticated user is determined by the server session, not this document.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["projectId", "projectName", "columns"],
+  "properties": {
+    "projectId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "projectName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "columns": {
+      "type": "array",
+      "minItems": 5,
+      "items": {
+        "$ref": "#/$defs/column"
+      }
+    }
+  },
+  "$defs": {
+    "column": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "cards"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "cards": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/card"
+          }
+        }
+      }
+    },
+    "card": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "details"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "details": {
+          "type": "string",
+          "maxLength": 5000
+        }
+      }
+    }
+  }
+}

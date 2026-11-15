@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
+import { resetProjects } from '../projects-store';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -32,6 +33,7 @@ export default function LoginPage() {
         return;
       }
 
+      resetProjects();
       router.replace('/');
       router.refresh();
     } catch {

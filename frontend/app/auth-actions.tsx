@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { resetProjects } from './projects-store';
 
 export function LogoutButton() {
   const router = useRouter();
@@ -19,6 +20,7 @@ export function LogoutButton() {
         return;
       }
 
+      resetProjects();
       router.replace('/login');
       router.refresh();
     } catch {
