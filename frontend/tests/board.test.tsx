@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Board } from '../app/page';
 import type { ProjectBoard } from '../app/projects-store';
@@ -10,6 +10,7 @@ vi.mock('next/navigation', () => ({
 
 describe('Board', () => {
   let board: ProjectBoard;
+  let assistantResponse: { reply: string; board: ProjectBoard | null };
 
   beforeEach(() => {
     Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
@@ -50,6 +51,7 @@ describe('Board', () => {
         },
       ],
     };
+    assistantResponse = { reply: 'Here is my response.', board: null };
     localStorage.clear();
     localStorage.setItem('petal-projects-migration-v1', 'complete');
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -59,6 +61,13 @@ describe('Board', () => {
           ok: true,
           status: 200,
           json: async () => [{ id: 'project-board', name: 'Project Board' }],
+        } as Response;
+      }
+      if (path === '/api/projects/project-board/assistant') {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => assistantResponse,
         } as Response;
       }
       if (path === '/api/projects/project-board/board') {
@@ -227,6 +236,93 @@ describe('Board', () => {
 
     expect(screen.getByText('Review copy')).toBeInTheDocument();
     expect(screen.queryByText('Design homepage')).not.toBeInTheDocument();
+  });
+
+  it('sends a message and applies the assistant board update', async () => {
+    await renderBoard();
+    const updatedBoard = JSON.parse(JSON.stringify(board)) as ProjectBoard;
+    updatedBoard.columns[0].cards[0].title = 'Assistant update';
+    assistantResponse = { reply: 'I updated the first card.', board: updatedBoard };
+
+    fireEvent.change(screen.getByLabelText('Your message'), {
+      target: { value: 'Rename the first card.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+
+    expect(await screen.findByText('I updated the first card.')).toBeInTheDocument();
+    expect(screen.getByText('Assistant update')).toBeInTheDocument();
+    expect(screen.getByText('All changes saved.')).toBeInTheDocument();
+
+    const request = vi.mocked(fetch).mock.calls.find(
+      ([input]) => String(input) === '/api/projects/project-board/assistant',
+    );
+    expect(request?.[1]?.body).toBe(JSON.stringify({
+      message: 'Rename the first card.',
+      history: [],
+    }));
+
+    fireEvent.change(screen.getByLabelText('Your message'), {
+      target: { value: 'What should happen next?' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    await waitFor(() => {
+      expect(screen.getAllByText('I updated the first card.')).toHaveLength(2);
+    });
+
+    const assistantRequests = vi.mocked(fetch).mock.calls.filter(
+      ([input]) => String(input) === '/api/projects/project-board/assistant',
+    );
+    expect(JSON.parse(String(assistantRequests[1]?.[1]?.body))).toEqual({
+      message: 'What should happen next?',
+      history: [
+        { role: 'user', content: 'Rename the first card.' },
+        { role: 'assistant', content: 'I updated the first card.' },
+      ],
+    });
+  });
+
+  it('shows an accessible error and keeps the message available to retry', async () => {
+    await renderBoard();
+    vi.mocked(fetch).mockImplementationOnce(async () => ({
+      ok: false,
+      status: 503,
+      json: async () => ({}),
+    }) as Response);
+
+    fireEvent.change(screen.getByLabelText('Your message'), {
+      target: { value: 'Summarize this board.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The assistant is not configured on the server.',
+    );
+    expect(screen.getByLabelText('Your message')).toHaveValue('Summarize this board.');
+  });
+
+  it('announces the waiting state and disables duplicate sends', async () => {
+    await renderBoard();
+    let resolveResponse: ((response: Response) => void) | undefined;
+    const responsePending = new Promise<Response>((resolve) => {
+      resolveResponse = resolve;
+    });
+    vi.mocked(fetch).mockImplementationOnce(() => responsePending);
+
+    fireEvent.change(screen.getByLabelText('Your message'), {
+      target: { value: 'Summarize this board.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Saving the board and waiting for the assistant...',
+    );
+    expect(screen.getByRole('button', { name: 'Sending...' })).toBeDisabled();
+    resolveResponse?.({
+      ok: true,
+      status: 200,
+      json: async () => assistantResponse,
+    } as Response);
+    expect(await screen.findByText('Here is my response.')).toBeInTheDocument();
   });
 
   it('adds a named column to the board', async () => {

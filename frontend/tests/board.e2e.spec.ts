@@ -85,6 +85,47 @@ test('searches cards by title and details', async ({ page }) => {
   await expect(page.getByText('Design homepage')).toHaveCount(0);
 });
 
+test('sends a conversation to a mocked assistant and applies its board update', async ({ page }) => {
+  const updatedBoard = await page.evaluate(async () => {
+    const response = await fetch('/api/projects/project-board/board');
+    return response.json();
+  });
+  updatedBoard.columns[0].cards[0].title = 'Assistant reviewed homepage';
+  let requestBody: unknown;
+
+  await page.route('**/api/projects/project-board/assistant', async (route) => {
+    requestBody = route.request().postDataJSON();
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        reply: 'I updated the homepage task.',
+        board: updatedBoard,
+      }),
+    });
+  });
+
+  const assistant = page.getByRole('region', { name: 'Petal assistant' });
+  await assistant.getByLabel('Your message').fill('Review the homepage task.');
+  await assistant.getByRole('button', { name: 'Send message' }).click();
+
+  await expect(assistant.getByText('I updated the homepage task.')).toBeVisible();
+  await expect(page.getByText('Assistant reviewed homepage')).toBeVisible();
+  expect(requestBody).toEqual({
+    message: 'Review the homepage task.',
+    history: [],
+  });
+});
+
+test('keeps the assistant usable without horizontal page overflow on mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 844 });
+
+  const assistant = page.getByRole('region', { name: 'Petal assistant' });
+  await expect(assistant.getByLabel('Your message')).toBeVisible();
+  await expect(assistant.getByRole('button', { name: 'Send message' })).toBeDisabled();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(320);
+});
+
 test('opens the project window and returns to the board', async ({ page }) => {
   await page.getByRole('link', { name: /View \d+ projects?/ }).click();
 

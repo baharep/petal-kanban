@@ -5,6 +5,7 @@ import Link from 'next/link';
 import type { CSSProperties } from 'react';
 import { ApiError, getApiErrorMessage, requestApiJson } from './api-client';
 import { LogoutButton } from './auth-actions';
+import { BoardAssistant } from './board-assistant';
 import type { Card, Column, ProjectBoard } from './projects-store';
 import { refreshProjects, useProjects } from './projects-store';
 
@@ -31,9 +32,10 @@ export function Board({ projectId = 'project-board' }: {
   const [loadError, setLoadError] = useState('');
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [assistantBusy, setAssistantBusy] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [saveErrorStatus, setSaveErrorStatus] = useState<number | null>(null);
-  const saveQueue = useRef<Promise<void>>(Promise.resolve());
+  const saveQueue = useRef<Promise<boolean>>(Promise.resolve(true));
   const saveVersion = useRef(0);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [draggedCardId, setDraggedCardId] = useState<string | null>(null);
@@ -79,31 +81,36 @@ export function Board({ projectId = 'project-board' }: {
     return () => controller.abort();
   }, [projectId, loadAttempt]);
 
-  const persistBoard = useCallback((nextBoard: ProjectBoard) => {
+  const persistBoard = useCallback((nextBoard: ProjectBoard): Promise<boolean> => {
     const version = ++saveVersion.current;
     setSaveStatus('saving');
     setSaveError('');
     setSaveErrorStatus(null);
-    saveQueue.current = saveQueue.current.catch(() => undefined).then(async () => {
-      await requestApiJson<ProjectBoard>(
-        `/api/projects/${encodeURIComponent(projectId)}/board`,
-        { method: 'PUT', body: JSON.stringify(nextBoard) },
-      );
-      if (version === saveVersion.current) setSaveStatus('saved');
-    }).catch((error: unknown) => {
-      if (version === saveVersion.current) {
-        setSaveStatus('error');
-        setSaveError(getApiErrorMessage(error, 'Could not save changes. Keep this page open and try again.'));
-        setSaveErrorStatus(error instanceof ApiError ? error.status : null);
+    saveQueue.current = saveQueue.current.then(async () => {
+      try {
+        await requestApiJson<ProjectBoard>(
+          `/api/projects/${encodeURIComponent(projectId)}/board`,
+          { method: 'PUT', body: JSON.stringify(nextBoard) },
+        );
+        if (version === saveVersion.current) setSaveStatus('saved');
+        return true;
+      } catch (error: unknown) {
+        if (version === saveVersion.current) {
+          setSaveStatus('error');
+          setSaveError(getApiErrorMessage(error, 'Could not save changes. Keep this page open and try again.'));
+          setSaveErrorStatus(error instanceof ApiError ? error.status : null);
+        }
+        return false;
       }
     });
+    return saveQueue.current;
   }, [projectId]);
 
   useEffect(() => () => {
     if (saveTimer.current) {
       clearTimeout(saveTimer.current);
       saveTimer.current = null;
-      if (currentBoardRef.current) persistBoard(currentBoardRef.current);
+      if (currentBoardRef.current) void persistBoard(currentBoardRef.current);
     }
   }, [persistBoard]);
 
@@ -115,13 +122,35 @@ export function Board({ projectId = 'project-board' }: {
     }, 350);
   };
 
-  const flushBoardSave = () => {
+  const flushBoardSave = async () => {
     if (saveTimer.current) {
       clearTimeout(saveTimer.current);
       saveTimer.current = null;
-      if (currentBoardRef.current) persistBoard(currentBoardRef.current);
+      if (currentBoardRef.current) return persistBoard(currentBoardRef.current);
     }
+    return saveQueue.current;
   };
+
+  const applyAssistantBoard = useCallback((updatedBoard: ProjectBoard) => {
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+    }
+    saveVersion.current += 1;
+    currentBoardRef.current = updatedBoard;
+    setBoard(updatedBoard);
+    setDrafts((current) => Object.fromEntries(
+      updatedBoard.columns.map(({ id }) => [id, current[id] ?? { ...emptyDraft }]),
+    ));
+    setNewCardColumn((current) =>
+      updatedBoard.columns.some((column) => column.id === current)
+        ? current
+        : updatedBoard.columns[0]?.id ?? '',
+    );
+    setSaveStatus('saved');
+    setSaveError('');
+    setSaveErrorStatus(null);
+  }, [setNewCardColumn]);
 
   const updateColumns = (
     update: (current: Column[]) => Column[],
@@ -374,6 +403,7 @@ export function Board({ projectId = 'project-board' }: {
             </button>
           </div>
         ) : null}
+        <div className="board-workspace" inert={assistantBusy}>
         <section className="intro" aria-labelledby="board-title">
           <div className="intro-copy">
             <p className="eyebrow"><span /> YOUR CREATIVE WORKSPACE</p>
@@ -447,7 +477,7 @@ export function Board({ projectId = 'project-board' }: {
                   onBlur={(event) => {
                     const title = event.currentTarget.value.trim() || `Stage ${index + 1}`;
                     if (title !== column.title) renameColumn(column.id, title);
-                    flushBoardSave();
+                    void flushBoardSave();
                   }}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter') event.currentTarget.blur();
@@ -562,7 +592,15 @@ export function Board({ projectId = 'project-board' }: {
             </section>
           ))}
         </div>
+        </div>
 
+        <BoardAssistant
+          projectId={projectId}
+          busy={assistantBusy}
+          onBusyChange={setAssistantBusy}
+          beforeRequest={flushBoardSave}
+          onBoardUpdate={applyAssistantBoard}
+        />
         <footer className="page-footer">
           <span>PETAL PROJECTS</span>
           <span>Move work forward, one card at a time.</span>
