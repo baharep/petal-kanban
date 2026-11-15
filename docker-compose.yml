@@ -6,6 +6,8 @@ services:
       PETAL_DATABASE_PATH: ${PETAL_DATABASE_PATH:-/data/petal.db}
       PETAL_COOKIE_SECURE: ${PETAL_COOKIE_SECURE:-false}
       PETAL_SESSION_SECRET: ${PETAL_SESSION_SECRET:?Run scripts/start.ps1 to create a local session key}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL_ID: ${OPENROUTER_MODEL_ID:-}
     volumes:
       - petal-data:/data
     ports:

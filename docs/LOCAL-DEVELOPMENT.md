@@ -33,6 +33,8 @@ SQLite به‌صورت خودکار در volume نام‌دار Docker با مس
 
 پس از ورود، فهرست پروژه‌های قدیمی مرورگر یک‌بار به SQLite منتقل می‌شود و نسخه‌ی `petal-projects` در `localStorage` به‌عنوان پشتیبان باقی می‌ماند. نسخه‌ی قبلی کارت‌ها و ستون‌های تغییر‌یافته را در مرورگر ذخیره نمی‌کرد؛ آن تغییرات قابل بازیابی یا انتقال نیستند.
 
+کلاینت پایه‌ی OpenRouter فقط در سمت سرور قرار دارد. برای پیکربندی آن، `OPENROUTER_API_KEY` و `OPENROUTER_MODEL_ID` را در `.env` تنظیم کنید؛ کلید را در کد یا فرانت‌اند قرار ندهید. این مرحله هنوز API گفت‌وگو در اختیار رابط کاربری نمی‌گذارد.
+
 ## آزمون بک‌اند
 
 ```powershell
@@ -43,3 +45,13 @@ Set-Location backend
 ```
 
 آزمون‌های Playwright نیز سرور FastAPI را با همین محیط مجازی بالا می‌آورند؛ پیش از اجرای آن‌ها، محیط و وابستگی‌های بک‌اند را طبق دستورهای بالا آماده کنید.
+
+آزمون زنده‌ی اختیاری فقط با اجازه‌ی صریح و اعتبار OpenRouter اجرا می‌شود؛ آزمون عادی از پاسخ ساختگی استفاده می‌کند:
+
+```powershell
+$env:OPENROUTER_API_KEY = "..."
+$env:OPENROUTER_MODEL_ID = "..."
+$env:PETAL_OPENROUTER_LIVE_TEST = "1"
+Set-Location backend
+.\.venv\Scripts\python.exe -m pytest tests\test_openrouter_live.py
+```
