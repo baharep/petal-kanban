@@ -33,4 +33,6 @@
   - `npm run lint` برای ESLint
   - `npx tsc --noEmit` برای بررسی نوع‌ها
   - `npm run build` برای ساخت تولید
+- برای آزمون بک‌اند، محیط توسعه‌ی مستندشده در `docs/LOCAL-DEVELOPMENT.md` را بسازید و `python -m pytest tests` را از پوشه‌ی `backend/` اجرا کنید.
+- هنگام تغییر Docker، `docker compose config` و آزمون‌های smoke مستندشده را نیز اجرا کنید.
 - فایل README را حداقلی نگه دارید و قابلیت‌های خارج از محدوده اضافه نکنید.

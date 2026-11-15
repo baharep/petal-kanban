@@ -5,3 +5,10 @@ frontend/coverage/
 frontend/playwright-report/
 frontend/test-results/
 frontend/npm-debug.log*
+.env
+backend/.venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/.pytest_cache/
+backend/data/
+*.py[cod]
